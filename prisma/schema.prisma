@@ -1,0 +1,363 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  name          String?
+  emailVerified Boolean
+  image         String?
+  role          UserRole  @default(CUSTOMER)
+  phone         String?
+  isActive      Boolean   @default(true)
+  isBanned      Boolean   @default(false)
+  bannedAt      DateTime?
+  bannedReason  String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime
+  updatedAt     DateTime
+  sessions      Session[]
+  accounts      Account[]
+
+  // QuickCourt relations
+  facilities      Facility[]     @relation("UserFacilities")
+  bookings        Booking[]
+  reviews         Review[]
+  reportsMade     Report[]       @relation("ReportsMadeByUser")
+  reportsResolved Report[]       @relation("ResolvedBy")
+  reportsAgainst  Report[]       @relation("ReportsAgainstUser")
+  notifications   Notification[]
+  searchLogs      SearchLog[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                Int
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+// QuickCourt Domain Models
+
+model Facility {
+  id                String            @id @default(uuid())
+  ownerId           Int
+  owner             User              @relation("UserFacilities", fields: [ownerId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  address           String
+  locationLat       Decimal?          @db.Decimal(10, 8)
+  locationLng       Decimal?          @db.Decimal(11, 8)
+  status            FacilityStatus    @default(pending)
+  adminComments     String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  courts            Court[]
+  facilitySports    FacilitySport[]
+  facilityAmenities FacilityAmenity[]
+  photos            FacilityPhoto[]
+  reviews           Review[]
+  bookings          Booking[]
+  reports           Report[]          @relation("FacilityReports")
+  searchLogs        SearchLog[]       @relation("FacilitySearchLogs")
+  notifications     Notification[]    @relation("FacilityNotifications")
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+enum FacilityStatus {
+  pending
+  approved
+  rejected
+}
+
+enum UserRole {
+  CUSTOMER
+  FACILITY_OWNER
+  ADMIN
+}
+
+model Sport {
+  id             String          @id @default(uuid())
+  name           String          @unique
+  description    String?
+  createdAt      DateTime        @default(now())
+  facilitySports FacilitySport[]
+  courts         Court[]
+}
+
+model FacilitySport {
+  facilityId String
+  sportId    String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  sport      Sport    @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  @@id([facilityId, sportId])
+}
+
+model Amenity {
+  id                String            @id @default(uuid())
+  name              String            @unique
+  icon              String?
+  createdAt         DateTime          @default(now())
+  facilityAmenities FacilityAmenity[]
+}
+
+model FacilityAmenity {
+  facilityId String
+  amenityId  String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  @@id([facilityId, amenityId])
+}
+
+model Court {
+  id             String               @id @default(uuid())
+  facilityId     String
+  sportId        String
+  name           String
+  pricePerHour   Decimal              @db.Decimal(10, 2)
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  facility       Facility             @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  sport          Sport                @relation(fields: [sportId], references: [id])
+  operatingHours CourtOperatingHour[]
+  availabilities CourtAvailability[]
+  bookings       Booking[]
+
+  @@index([facilityId])
+  @@index([sportId])
+}
+
+model CourtOperatingHour {
+  id        String   @id @default(uuid())
+  courtId   String
+  dayOfWeek Int
+  startTime DateTime @db.Time
+  endTime   DateTime @db.Time
+  court     Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@index([courtId])
+}
+
+model CourtAvailability {
+  id          String   @id @default(uuid())
+  courtId     String
+  date        DateTime @db.Date
+  startTime   DateTime @db.Time
+  endTime     DateTime @db.Time
+  isBlocked   Boolean  @default(false)
+  blockReason String?
+  court       Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@unique([courtId, date, startTime, endTime])
+  @@index([courtId, date])
+}
+
+model Booking {
+  id                 String         @id @default(uuid())
+  userId             Int
+  courtId            String
+  facilityId         String
+  bookingDate        DateTime       @db.Date
+  startTime          DateTime       @db.Time
+  endTime            DateTime       @db.Time
+  totalHours         Decimal        @db.Decimal(3, 1)
+  pricePerHour       Decimal        @db.Decimal(10, 2)
+  totalAmount        Decimal        @db.Decimal(10, 2)
+  status             BookingStatus  @default(confirmed)
+  paymentStatus      PaymentStatus  @default(pending)
+  paymentId          String?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  user               User           @relation(fields: [userId], references: [id])
+  court              Court          @relation(fields: [courtId], references: [id])
+  facility           Facility       @relation(fields: [facilityId], references: [id])
+  reviews            Review[]
+  notifications      Notification[]
+
+  @@index([userId])
+  @@index([courtId])
+  @@index([facilityId])
+  @@index([bookingDate])
+  @@index([status])
+}
+
+enum BookingStatus {
+  confirmed
+  cancelled
+  completed
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+model FacilityPhoto {
+  id         String   @id @default(uuid())
+  facilityId String
+  photoUrl   String
+  caption    String?
+  isPrimary  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@index([facilityId])
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  facilityId String
+  userId     Int
+  bookingId  String?
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
+  booking    Booking? @relation(fields: [bookingId], references: [id])
+
+  @@unique([userId, facilityId])
+  @@index([facilityId])
+  @@index([userId])
+}
+
+model Report {
+  id                 String       @id @default(uuid())
+  reporterId         Int
+  reportedFacilityId String?
+  reportedUserId     Int?
+  reportType         ReportType
+  description        String
+  status             ReportStatus @default(pending)
+  adminNotes         String?
+  resolvedBy         Int?
+  resolvedAt         DateTime     @default(now())
+  reporter           User         @relation("ReportsMadeByUser", fields: [reporterId], references: [id])
+  reportedFacility   Facility?    @relation("FacilityReports", fields: [reportedFacilityId], references: [id])
+  reportedUser       User?        @relation("ReportsAgainstUser", fields: [reportedUserId], references: [id])
+  resolver           User?        @relation("ResolvedBy", fields: [resolvedBy], references: [id])
+
+  @@index([reporterId])
+  @@index([status])
+}
+
+enum ReportType {
+  inappropriate_content
+  fake_listing
+  poor_service
+  fraud
+  other
+}
+
+enum ReportStatus {
+  pending
+  reviewed
+  resolved
+  dismissed
+}
+
+model SearchLog {
+  id                String    @id @default(uuid())
+  userId            Int?
+  searchQuery       String?
+  filters           Json?
+  resultsCount      Int?
+  clickedFacilityId String?
+  sessionId         String?
+  createdAt         DateTime  @default(now())
+  user              User?     @relation(fields: [userId], references: [id])
+  clickedFacility   Facility? @relation("FacilitySearchLogs", fields: [clickedFacilityId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id                String           @id @default(uuid())
+  userId            Int
+  title             String
+  message           String
+  type              NotificationType
+  isRead            Boolean          @default(false)
+  relatedBookingId  String?
+  relatedFacilityId String?
+  createdAt         DateTime         @default(now())
+  user              User             @relation(fields: [userId], references: [id])
+  relatedBooking    Booking?         @relation(fields: [relatedBookingId], references: [id])
+  relatedFacility   Facility?        @relation("FacilityNotifications", fields: [relatedFacilityId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+enum NotificationType {
+  booking_confirmation
+  booking_cancellation
+  facility_approved
+  facility_rejected
+  system
+}
